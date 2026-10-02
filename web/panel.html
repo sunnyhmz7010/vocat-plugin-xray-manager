@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Xray管理</title><link rel="stylesheet" href="panel.css"><script src="panel.js" defer></script></head>
+<body><main>
+<header class="toolbar"><div class="toolbar-actions"><button id="add-node" type="button"><span aria-hidden="true">＋</span> 新增节点</button><button id="refresh" class="secondary" type="button">刷新状态</button></div></header>
+<p id="notice" role="status" aria-live="polite"></p>
+<section class="table-card" aria-label="已保存节点"><div class="table-scroll"><table><thead><tr><th scope="col">名称 / 协议</th><th scope="col">本地地址 / 访问方式</th><th scope="col">内核状态</th><th scope="col">VoCat 代理管理</th><th scope="col">操作</th></tr></thead><tbody id="nodes"></tbody></table></div><p id="load-state" role="status">正在读取节点…</p></section>
+<dialog id="import-dialog" aria-labelledby="import-title">
+<div class="dialog-heading"><h2 id="import-title">新增节点</h2><button id="close-dialog" class="icon-button secondary" type="button" aria-label="关闭">×</button></div>
+<form id="import-form"><div class="dialog-body">
+<label for="link">节点分享链接</label><textarea id="link" rows="4" required maxlength="16384" spellcheck="false" autocomplete="off" placeholder="vless://…"></textarea><p class="hint">支持 VLESS、VMess、Trojan、Shadowsocks。</p>
+<label class="field-gap" for="import-port">本地端口</label><input id="import-port" type="number" min="1" max="65535" step="1" inputmode="numeric" placeholder="留空自动分配">
+<label class="check-field"><input id="import-lan" type="checkbox">允许局域网访问</label><p class="hint">开启后监听所有 IPv4 网卡，其他设备通过本设备的 IP 和端口连接。</p>
+<label class="check-field"><input id="import-auth" type="checkbox">账号密码认证</label>
+<div id="import-auth-fields" hidden><label for="import-username">账号</label><input id="import-username" type="text" maxlength="255" autocomplete="off" spellcheck="false"><label class="field-gap" for="import-password">密码</label><input id="import-password" type="password" maxlength="255" autocomplete="new-password"><p class="hint">账号和密码各限 255 字节，推送时会写入 VoCat 代理管理。</p></div>
+<p id="form-notice" role="status" aria-live="polite"></p></div><div class="dialog-footer"><button id="cancel-import" class="secondary" type="button">取消</button><button type="submit" id="import-button">导入并推送到 VoCat</button></div></form></dialog>
+<dialog id="port-dialog" aria-labelledby="port-title">
+<div class="dialog-heading"><h2 id="port-title">连接设置</h2><button id="close-port" class="icon-button secondary" type="button" aria-label="关闭连接设置">×</button></div>
+<form id="port-form"><div class="dialog-body"><p id="port-node-name" class="hint"></p>
+<label class="field-gap" for="node-port">本地端口</label><input id="node-port" type="number" min="1" max="65535" step="1" required inputmode="numeric">
+<label class="check-field"><input id="node-lan" type="checkbox">允许局域网访问</label><p class="hint">开启后监听所有 IPv4 网卡，其他设备通过本设备的 IP 和端口连接。</p>
+<label class="check-field"><input id="node-auth" type="checkbox">账号密码认证</label>
+<div id="node-auth-fields" hidden><label for="node-username">账号</label><input id="node-username" type="text" maxlength="255" autocomplete="off" spellcheck="false"><label class="field-gap" for="node-password">密码</label><input id="node-password" type="password" maxlength="255" autocomplete="new-password"><p id="password-hint" class="hint"></p></div>
+<p class="hint field-gap">修改运行中节点会重启连接。保存后请重新推送，以更新 VoCat 中的地址和凭据。</p><p id="port-notice" role="status" aria-live="polite"></p></div><div class="dialog-footer"><button id="cancel-port" class="secondary" type="button">取消</button><button type="submit" id="save-port">保存设置</button></div></form></dialog>
+</main></body></html>
