@@ -44,7 +44,7 @@ func (m *Manager) SetConnection(id, link string) (View, error) {
 			return m.view(r), nil
 		}
 		updated := r
-		updated.Link, updated.Name, updated.Protocol = link, parsed.Name, parsed.Protocol
+		updated.Link, updated.Protocol = link, parsed.Protocol
 		next := append([]Record{}, m.records...)
 		next[i] = updated
 		wasRunning := alive(m.processes[id])

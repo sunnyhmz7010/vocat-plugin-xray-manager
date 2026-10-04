@@ -130,6 +130,20 @@ func handler(m *engine.Manager) http.Handler {
 		}
 		respond(w, 200, v)
 	})
+	mux.HandleFunc("PUT /nodes/{id}/name", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Name string `json:"name"`
+		}
+		if !decodeBody(w, r, &input, 4096) {
+			return
+		}
+		view, err := m.Rename(r.PathValue("id"), input.Name)
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		respond(w, 200, view)
+	})
 	mux.HandleFunc("GET /nodes/{id}/connection", func(w http.ResponseWriter, r *http.Request) {
 		link, err := m.Connection(r.PathValue("id"))
 		if err != nil {
