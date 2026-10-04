@@ -191,7 +191,7 @@ func TestXrayInboundForwardingAndSwitch(t *testing.T) {
 					probeProtocols = append(probeProtocols, "socks5")
 				}
 				for _, protocol := range probeProtocols {
-					result, err := m.Probe(context.Background(), v.ID, ProbeOptions{URL: origin.URL, ProxyProtocol: protocol, TimeoutSeconds: 5})
+					result, err := m.probeURL(context.Background(), v.ID, ProbeOptions{ProxyProtocol: protocol, TimeoutSeconds: 5}, origin.URL)
 					if err != nil || !result.OK || result.StatusCode != 200 {
 						t.Fatalf("real Xray probe %s: %+v %v", protocol, result, err)
 					}
