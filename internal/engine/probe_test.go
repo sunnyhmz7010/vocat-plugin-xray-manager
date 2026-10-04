@@ -55,7 +55,7 @@ func TestProbeHTTPProxy(t *testing.T) {
 			t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
 			t.Setenv("NO_PROXY", "*")
 			m := probeManager(t, proxy.Listener.Addr().String(), mode, true)
-			result, err := m.Probe(context.Background(), "test", ProbeOptions{URL: "http://target.invalid/check?x=1"})
+			result, err := m.probeURL(context.Background(), "test", ProbeOptions{}, "http://target.invalid/check?x=1")
 			if err != nil || !result.OK || result.StatusCode != 204 || requests.Load() != 1 {
 				t.Fatalf("result=%+v err=%v requests=%d", result, err, requests.Load())
 			}
@@ -80,7 +80,7 @@ func TestProbeTargetStatusAndRedirect(t *testing.T) {
 			}))
 			defer proxy.Close()
 			m := probeManager(t, proxy.Listener.Addr().String(), "http", false)
-			result, err := m.Probe(context.Background(), "test", ProbeOptions{URL: "http://target.invalid/"})
+			result, err := m.probeURL(context.Background(), "test", ProbeOptions{}, "http://target.invalid/")
 			if err != nil || result.StatusCode != status || result.OK != (status < 400) || calls.Load() != 1 {
 				t.Fatalf("result=%+v err=%v", result, err)
 			}
@@ -96,17 +96,27 @@ func TestProbeTargetStatusAndRedirect(t *testing.T) {
 
 func TestProbeValidationAndState(t *testing.T) {
 	m := probeManager(t, "127.0.0.1:1", "http", false)
-	for _, address := range []string{"", "ftp://example.invalid", "http:///missing", "http://user:secret@example.invalid", "http://example.invalid/#fragment", "http://example.invalid:0", "http://example.invalid:65536", "http://example.invalid:bad", "://bad"} {
-		if _, err := m.Probe(context.Background(), "test", ProbeOptions{URL: address}); err == nil {
-			t.Errorf("accepted target %q", address)
+	for _, target := range []string{"custom", "http://example.com", "https://127.0.0.1/", "localhost"} {
+		if _, err := m.Probe(context.Background(), "test", ProbeOptions{Target: target}); err == nil {
+			t.Errorf("accepted probe target %q", target)
 		}
 	}
-	for _, opts := range []ProbeOptions{{URL: "http://target.invalid", TimeoutSeconds: -1}, {URL: "http://target.invalid", TimeoutSeconds: 31}, {URL: "http://target.invalid", Method: "POST"}} {
+	for _, opts := range []ProbeOptions{{Target: "google", TimeoutSeconds: -1}, {Target: "google", TimeoutSeconds: 31}, {Target: "google", Method: "POST"}} {
 		if _, err := m.Probe(context.Background(), "test", opts); err == nil {
 			t.Errorf("accepted options %+v", opts)
 		}
 	}
-	opts := ProbeOptions{URL: "http://target.invalid"}
+	for target, want := range map[string]string{
+		"":           "https://www.gstatic.com/generate_204",
+		"google":     "https://www.gstatic.com/generate_204",
+		"cloudflare": "https://cp.cloudflare.com/generate_204",
+	} {
+		got, err := probeTargetURL(target)
+		if err != nil || got != want {
+			t.Fatalf("target %q = %q, %v; want %q", target, got, err, want)
+		}
+	}
+	opts := ProbeOptions{Target: "google"}
 	if _, err := m.Probe(context.Background(), "missing", opts); err == nil {
 		t.Fatal("accepted missing node")
 	}
@@ -119,7 +129,6 @@ func TestProbeValidationAndState(t *testing.T) {
 		t.Fatal("accepted closed manager")
 	}
 }
-
 func TestProbeNoDirectFallback(t *testing.T) {
 	var direct atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { direct.Add(1) }))
@@ -132,7 +141,7 @@ func TestProbeNoDirectFallback(t *testing.T) {
 	listener.Close()
 	for _, mode := range []string{"http", "socks5"} {
 		m := probeManager(t, address, "mixed", true)
-		result, err := m.Probe(context.Background(), "test", ProbeOptions{URL: target.URL, TimeoutSeconds: 1, ProxyProtocol: mode})
+		result, err := m.probeURL(context.Background(), "test", ProbeOptions{TimeoutSeconds: 1, ProxyProtocol: mode}, target.URL)
 		if err != nil || result.OK || result.StatusCode != 0 || result.Error == "" {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
@@ -157,7 +166,7 @@ func TestProbeTimeoutBodyAndUnlockedManager(t *testing.T) {
 	m := probeManager(t, proxy.Listener.Addr().String(), "http", false)
 	resultCh := make(chan ProbeResult, 1)
 	go func() {
-		result, err := m.Probe(context.Background(), "test", ProbeOptions{URL: "http://target.invalid", TimeoutSeconds: 1})
+		result, err := m.probeURL(context.Background(), "test", ProbeOptions{TimeoutSeconds: 1}, "http://target.invalid")
 		if err != nil {
 			t.Error(err)
 		}
@@ -185,7 +194,7 @@ func TestProbeCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { <-started; cancel() }()
-	result, err := m.Probe(ctx, "test", ProbeOptions{URL: "http://target.invalid"})
+	result, err := m.probeURL(ctx, "test", ProbeOptions{}, "http://target.invalid")
 	if err != nil || result.OK || result.Error != "探测已取消" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -232,7 +241,7 @@ func TestProbeTLSCertificateValidation(t *testing.T) {
 	}))
 	defer proxy.Close()
 	m := probeManager(t, proxy.Listener.Addr().String(), "http", true)
-	result, err := m.Probe(context.Background(), "test", ProbeOptions{URL: origin.URL, TimeoutSeconds: 3})
+	result, err := m.probeURL(context.Background(), "test", ProbeOptions{TimeoutSeconds: 3}, origin.URL)
 	if err != nil || result.OK || result.Error == "" || connects.Load() != 1 || originRequests.Load() != 0 {
 		t.Fatalf("TLS must reject untrusted certificate: result=%+v err=%v CONNECT=%d requests=%d", result, err, connects.Load(), originRequests.Load())
 	}
@@ -248,7 +257,7 @@ func TestProbeBodyReadLimit(t *testing.T) {
 	}))
 	defer proxy.Close()
 	m := probeManager(t, proxy.Listener.Addr().String(), "http", false)
-	result, err := m.Probe(context.Background(), "test", ProbeOptions{URL: "http://target.invalid", TimeoutSeconds: 2})
+	result, err := m.probeURL(context.Background(), "test", ProbeOptions{TimeoutSeconds: 2}, "http://target.invalid")
 	if err != nil || !result.OK {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -341,7 +350,7 @@ func TestProbeSOCKSAuthentication(t *testing.T) {
 		}()
 	}()
 	m := probeManager(t, listener.Addr().String(), "mixed", true)
-	result, probeErr := m.Probe(context.Background(), "test", ProbeOptions{URL: "http://target.invalid", TimeoutSeconds: 3, ProxyProtocol: "socks5"})
+	result, probeErr := m.probeURL(context.Background(), "test", ProbeOptions{TimeoutSeconds: 3, ProxyProtocol: "socks5"}, "http://target.invalid")
 	if err := <-serverErr; err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +362,7 @@ func TestProbeSOCKSAuthentication(t *testing.T) {
 func TestProbeProtocolValidation(t *testing.T) {
 	m := probeManager(t, "127.0.0.1:12345", "http", false)
 	for _, protocol := range []string{"socks5", "direct", "https"} {
-		if _, err := m.Probe(context.Background(), "test", ProbeOptions{URL: "https://target.invalid", ProxyProtocol: protocol}); err == nil {
+		if _, err := m.probeURL(context.Background(), "test", ProbeOptions{ProxyProtocol: protocol}, "https://target.invalid"); err == nil {
 			t.Fatal("accepted invalid probe protocol", protocol)
 		}
 	}
