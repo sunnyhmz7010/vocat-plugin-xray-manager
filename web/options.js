@@ -152,16 +152,14 @@ function openProbe(node) {
   probeID = node.id; $("probe-name").textContent = node.name; $("probe-result").textContent = ""; $("probe-result").className = "";
   $("probe-dialog").showModal();
 }
-$("probe-target").addEventListener("change", () => { if ($("probe-target").value !== "custom") $("probe-url").value = $("probe-target").value; else $("probe-url").focus(); });
-$("probe-url").addEventListener("input", () => { $("probe-target").value = "custom"; });
 $("probe-form").addEventListener("submit", async event => {
   event.preventDefault(); if (busy) return;
-  const url = $("probe-url").value.trim(), timeout_seconds = Number($("probe-timeout").value);
+  const target = $("probe-target").value, timeout_seconds = Number($("probe-timeout").value);
   setBusy(true); $("cancel-probe").disabled = false; $("close-probe").disabled = false;
   $("probe-result").className = ""; $("probe-result").textContent = "正在通过节点代理访问目标…";
   probeController = new AbortController();
   try {
-    const result = await request(`${BACKEND}/nodes/${probeID}/probe`, "POST", {url, timeout_seconds, proxy_protocol: $("probe-protocol").value}, probeController.signal);
+    const result = await request(`${BACKEND}/nodes/${probeID}/probe`, "POST", {target, timeout_seconds, proxy_protocol: $("probe-protocol").value}, probeController.signal);
     $("probe-result").className = result.ok ? "" : "error";
     $("probe-result").textContent = `${result.ok ? "代理访问成功" : "检测未通过"} · ${result.latency_ms} ms${result.status_code ? ` · HTTP ${result.status_code}` : ""}${result.error ? `\n${result.error}` : ""}`;
   } catch (error) { if (error.name !== "AbortError") { $("probe-result").className = "error"; $("probe-result").textContent = error.message; } }

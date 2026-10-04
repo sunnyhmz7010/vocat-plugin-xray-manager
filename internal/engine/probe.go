@@ -9,14 +9,13 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 )
 
 // ProbeOptions 指定经节点代理访问的目标；空 Method 使用 GET，零超时使用 10 秒。
 type ProbeOptions struct {
 	ProxyProtocol  string `json:"proxy_protocol"`
-	URL            string `json:"url"`
+	Target         string `json:"target"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Method         string `json:"method"`
 }
@@ -29,19 +28,31 @@ type ProbeResult struct {
 	URL        string `json:"url"`
 }
 
+// probeTargetURL 只允许选择服务端维护的固定检测目标，避免用户输入直接进入网络请求形成 SSRF。
+func probeTargetURL(target string) (string, error) {
+	switch target {
+	case "", "google":
+		return "https://www.gstatic.com/generate_204", nil
+	case "cloudflare":
+		return "https://cp.cloudflare.com/generate_204", nil
+	default:
+		return "", errors.New("检测目标仅支持 Google 或 Cloudflare")
+	}
+}
+
 // Probe 的参数及运行状态错误作为 error 返回；网络失败、目标状态作为结果返回。
 // 不跟随重定向，避免探测目标悄悄变化；LatencyMS 包括最多 64 KiB 响应体的读取。
 func (m *Manager) Probe(ctx context.Context, id string, opts ProbeOptions) (ProbeResult, error) {
-	target, err := url.Parse(strings.TrimSpace(opts.URL))
-	if err != nil || target == nil || (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" || target.User != nil || target.Opaque != "" || target.Fragment != "" {
-		return ProbeResult{}, errors.New("探测地址必须为不含用户认证及片段的 HTTP 或 HTTPS URL")
+	targetURL, err := probeTargetURL(opts.Target)
+	if err != nil {
+		return ProbeResult{}, err
 	}
-	if port := target.Port(); port != "" {
-		n, err := strconv.Atoi(port)
-		if err != nil || n < 1 || n > 65535 {
-			return ProbeResult{}, errors.New("探测地址端口必须为 1..65535")
-		}
-	}
+	return m.probeURL(ctx, id, opts, targetURL)
+}
+
+// probeURL 执行已经由调用方确定的检测地址。生产入口 Probe 只会传入上面的固定目标；
+// 单元和真实内核测试可直接调用该内部方法验证代理行为。
+func (m *Manager) probeURL(ctx context.Context, id string, opts ProbeOptions, targetURL string) (ProbeResult, error) {
 	if opts.Method != "" && opts.Method != http.MethodGet {
 		return ProbeResult{}, errors.New("探测仅支持 GET 方法")
 	}
@@ -117,8 +128,8 @@ func (m *Manager) Probe(ctx context.Context, id string, opts ProbeOptions) (Prob
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
 	defer cancel()
-	result := ProbeResult{URL: target.String()}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	result := ProbeResult{URL: targetURL}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return ProbeResult{}, errors.New("探测地址无效")
 	}
