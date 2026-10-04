@@ -54,7 +54,7 @@ func TestKCPSeedAndHeaderForwarding(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				result, err := m.Probe(context.Background(), v.ID, ProbeOptions{URL: origin.URL, ProxyProtocol: "socks5", TimeoutSeconds: 5})
+				result, err := m.probeURL(context.Background(), v.ID, ProbeOptions{ProxyProtocol: "socks5", TimeoutSeconds: 5}, origin.URL)
 				if err != nil || !result.OK || result.StatusCode != 200 {
 					t.Fatalf("KCP forwarding failed: %+v %v", result, err)
 				}
@@ -65,7 +65,7 @@ func TestKCPSeedAndHeaderForwarding(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					failed, err := m.Probe(context.Background(), wrong.ID, ProbeOptions{URL: origin.URL, TimeoutSeconds: 1})
+					failed, err := m.probeURL(context.Background(), wrong.ID, ProbeOptions{TimeoutSeconds: 1}, origin.URL)
 					if err != nil || failed.OK {
 						t.Fatalf("wrong seed succeeded: %+v %v", failed, err)
 					}
