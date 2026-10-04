@@ -30,9 +30,8 @@ VoCat 的上游代理需要 SOCKS 地址，而常见节点通常以 VLESS、VMes
 
 ### 📋 前置要求
 
-- 运行 VoCat 的 Linux amd64 或 arm64 设备，以及可管理插件和上游代理的账号。
-- VoCat 需具备插件后端、侧边栏贡献与上游代理管理接口。本项目按 VoCat `master` 的 `2bb43de6b8c4de70e2f0d10ca6d6b8adac38a9cf` 插件接口适配，不据此承诺某个已发布版本兼容，也不代表已完成真机验收。
-- 选择与 **VoCat 宿主设备** 架构一致的安装包。运行已构建的安装包不需要 Go、Python 或单独安装 Xray。
+- 运行 VoCat 的 Linux amd64 或 arm64 设备。
+- 选择与 VoCat 宿主设备架构一致的安装包。运行已构建的安装包不需要 Go、Python 或单独安装 Xray。
 
 ### 📦 安装与运行
 
