@@ -40,8 +40,8 @@ VoCat 的上游代理需要 SOCKS 地址，而常见节点通常以 VLESS、VMes
 
    | 宿主架构 | 构建产物 |
    | --- | --- |
-   | Linux amd64 / x86_64 | `dist/xray-manager-1.1.0-linux-amd64.zip` |
-   | Linux arm64 / aarch64 | `dist/xray-manager-1.1.0-linux-arm64.zip` |
+   | Linux amd64 / x86_64 | `dist/xray-manager-<version>-linux-amd64.zip` |
+   | Linux arm64 / aarch64 | `dist/xray-manager-<version>-linux-arm64.zip` |
 
 2. 在 VoCat 宿主执行：
 
@@ -174,21 +174,30 @@ VLESS `packetEncoding` 提供 `none`（核心默认行为）与 `xudp`（显式�
 
 ```text
 vocat-plugin-xray-manager/
-├── main.go                    # VoCat 后端入口、私有目录定位与 HTTP API
-├── go.mod                     # Go 版本与模块声明
+├── .github/
+│   ├── ISSUE_TEMPLATE/        # 双语 Bug / 功能建议表单与安全报告入口
+│   └── workflows/
+│       └── release.yml        # 发布 Release 时构建双架构插件包
 ├── internal/
-│   ├── node/                  # 分享链接解析与单元测试
-│   └── engine/                # 节点持久化、Xray 生命周期与测试
-├── web/                       # 侧边栏面板
+│   ├── node/                  # 分享链接解析、参数校验和 Xray 配置映射
+│   └── engine/                # 节点持久化、端口管理、进程生命周期和连通性检测
+├── web/
+│   ├── panel.html             # 面板结构
+│   ├── panel.css              # 面板样式
+│   ├── panel.js               # 面板交互和 API 调用
+│   └── options.js             # VLESS 参数编辑器
+├── main.go                    # VoCat 后端入口、私有目录定位与 HTTP API
+├── go.mod                     # Go 模块定义
 ├── vocat-plugin.json          # 插件标识、权限与平台命令
-├── build.py                   # 内核校验与分架构打包
-├── README.md                  # 安装、使用与开发说明
-├── THIRD_PARTY.md             # 第三方组件与许可证说明
-├── LICENSE                    # 插件 GPL-3.0 许可证
-├── SECURITY.md                # 安全报告渠道
-├── .cache/                    # 构建时生成的内核下载缓存及中间产物
-└── dist/                      # 构建时生成的安装包与 SHA-256 文件
+├── build.py                  # 内核校验与分架构打包
+├── browser-test.cjs          # 浏览器交互回归测试
+├── README.md                 # 安装、使用与开发说明
+├── THIRD_PARTY.md            # 第三方组件与许可证说明
+├── LICENSE                   # 插件 GPL-3.0 许可证
+└── SECURITY.md               # 安全报告渠道
 ```
+
+`.cache/` 和 `dist/` 仅用于本地构建缓存及生成的安装包，不属于源码目录。
 
 ## 👨‍💻 本地开发
 
@@ -232,7 +241,7 @@ XRAY_TEST_BINARY=/absolute/path/to/xray go test ./... -count=1
 
 未设置该变量时，真实内核测试会跳过。可选浏览器回归使用 `node browser-test.cjs`，需已有 Playwright；可以用 `PLAYWRIGHT_MODULE` 指定已有模块路径、`CHROMIUM_EXECUTABLE` 指定 Chromium 路径。浏览器测试模拟 VoCat API，覆盖错误恢复和状态一致性，不替代目标设备验收。
 
-构建脚本设置 `GOOS=linux`、对应 `GOARCH` 和 `CGO_ENABLED=0`，从官方归档提取 Xray，并保留上游 LICENSE/NOTICE 文件。每个安装包只声明对应的平台命令，生成同名 `.zip.sha256` 校验文件，并检查 ZIP 不超过宿主的 64 MiB 限制。安装包的 `source/` 目录包含对应插件源码；同时生成独立的 `xray-manager-1.1.0-source.zip`，该源码包用于开发，不用于插件安装。
+构建脚本设置 `GOOS=linux`、对应 `GOARCH` 和 `CGO_ENABLED=0`，从官方归档提取 Xray，并保留上游 LICENSE/NOTICE 文件。每个安装包只声明对应的平台命令，生成同名 `.zip.sha256` 校验文件，并检查 ZIP 不超过宿主的 64 MiB 限制。安装包的 `source/` 目录包含对应插件源码；同时生成独立的 `xray-manager-<version>-source.zip`，该源码包用于开发，不用于插件安装。
 
 脚本的 `windows-test` 选项仅提取 Windows 测试内核，不生成 VoCat Windows 插件安装包。修改固定内核版本时，需要同时核实官方资源名、更新固定哈希并复核协议兼容性；不要跳过校验。
 
