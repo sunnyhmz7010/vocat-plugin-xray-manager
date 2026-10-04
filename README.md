@@ -1,13 +1,11 @@
 <div align="center">
-  <h1>VoCat Xray管理</h1>
-  <p>粘贴节点分享链接，自动创建本地代理并接入 VoCat 上游。</p>
+  <h1>VoCat插件-Xray管理</h1>
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.2.0-3b82f6" alt="Version 1.2.0" />
-  <img src="https://img.shields.io/badge/Platform-Linux_amd64%20%7C%20arm64-64748b" alt="Linux amd64 / arm64" />
+  <a href="https://github.com/sunnyhmz7010/vocat-plugin-xray-manager/releases"><img src="https://img.shields.io/github/v/release/sunnyhmz7010/vocat-plugin-xray-manager?label=Release&color=3b82f6" alt="Release" /></a>
   <img src="https://img.shields.io/badge/Xray-v26.3.27-8b5cf6" alt="Xray v26.3.27" />
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-10b981" alt="GPL-3.0" /></a>
+  <a href="https://github.com/sunnyhmz7010/vocat-plugin-xray-manager/blob/main/LICENSE"><img src="https://img.shields.io/github/license/sunnyhmz7010/vocat-plugin-xray-manager?color=10b981" alt="License" /></a>
 </p>
 
 ---
@@ -27,7 +25,6 @@ VoCat 的上游代理需要 SOCKS 地址，而常见节点通常以 VLESS、VMes
 - 在侧边栏管理节点的启动、停止、推送与删除；关闭页面后内核继续运行。
 - 在新增弹窗和「节点参数」中配置 VLESS 参数；修改链接时保留节点 ID、本地端口及 SIM 绑定。
 - 选择 HTTP 或 SOCKS5，经节点实际访问检测网址，查看状态码、耗时和错误；支持自定义地址、1–30 秒超时与取消。
-- 构建时下载固定版本的官方内核并验证 SHA-256，分别生成 Linux amd64、arm64 安装包。
 
 ## ⚡ 快速开始
 
@@ -244,8 +241,6 @@ XRAY_TEST_BINARY=/absolute/path/to/xray go test ./... -count=1
 ## 🔐 安全报告
 
 如果发现安全问题，请不要公开披露细节。请优先参考仓库中的 [SECURITY.md](./SECURITY.md) 提交安全报告。
-
-节点链接和私有数据文件包含凭据，请勿提交到版本库、粘贴到公开 issue 或未经脱敏上传日志。SOCKS 服务默认仅监听回环地址、无认证；开启局域网访问后监听所有 IPv4 网卡，实际可达范围由宿主网络与防火墙决定。可启用账号密码认证；SOCKS 用户名密码认证本身不加密传输；插件 API 依赖 VoCat 的用户会话、CSRF 校验与请求转发，不应直接对外暴露。
 
 ## 📄 许可证
 
