@@ -1,0 +1,93 @@
+name: Bug Report / 缺陷反馈
+description: Report a reproducible bug in VoCat Xray Manager / 提交 Xray管理插件可复现的问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove node credentials, complete share links, authentication passwords and SIM identifiers. Report security vulnerabilities privately using SECURITY.md.
+        感谢你反馈问题。请移除节点凭据、完整分享链接、认证密码及 SIM 标识。安全漏洞请按 SECURITY.md 私下报告。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Bug Summary / 问题概述
+      description: Describe the issue clearly and concisely. / 请简要描述问题。
+      placeholder: What went wrong? / 出现了什么问题？
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce / 复现步骤
+      description: List the shortest steps and identify whether the issue occurs during import, start, settings, export or connectivity checks. / 请提供最小复现步骤，并说明发生在导入、启动、设置、推送还是连通性检测。
+      placeholder: |
+        1. Open Xray Manager / 打开 Xray管理
+        2. Select an action or change a setting / 选择操作或修改设置
+        3. See error / 出现错误 ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Plugin Version / 插件版本
+      description: Xray Manager version or commit hash; specify if this is a self-built package. / Xray管理插件版本或 commit hash；自行构建时请注明。
+      placeholder: e.g. v1.1.0, official release package / 例如 v1.1.0，官方 Release 安装包
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 运行环境
+      description: Include VoCat version or commit, host OS and architecture, and browser version. Go/Python versions are needed only for build problems. / 请填写 VoCat 版本或提交、宿主系统及架构、浏览器版本。构建问题才需要 Go/Python 版本。
+      placeholder: |
+        VoCat version / VoCat 版本：
+        Host OS and architecture / 宿主系统及架构：Linux arm64 / amd64
+        Browser / 浏览器：
+        Installation method / 安装方式：Release ZIP / self-built 自行构建
+    validations:
+      required: true
+
+  - type: textarea
+    id: node-settings
+    attributes:
+      label: Node and Proxy Settings / 节点与代理设置
+      description: If relevant, list protocol, transport, security, inbound mode, UDP, LAN and authentication status. Do not paste full share links or credentials. / 如适用，请填写协议、传输、安全方式、入站模式，以及 UDP、局域网、认证开关；不要粘贴完整分享链接或凭据。
+      placeholder: VLESS + XHTTP + TLS; mixed inbound; UDP enabled; LAN and authentication disabled / VLESS + XHTTP + TLS；混合入站；UDP 开启；局域网与认证关闭
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior / 期望行为
+      description: What should have happened? / 你期望的结果是什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior / 实际行为
+      description: What actually happened? Include the displayed error and whether the node was running. / 实际发生了什么？请附页面错误提示，并说明节点是否处于运行状态。
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or Screenshots / 日志或截图
+      description: Add relevant sanitized errors or screenshots. Do not upload nodes.json or full proxy configuration. / 提供脱敏错误信息或截图；不要上传 nodes.json 或完整代理配置。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist / 提交前确认
+      options:
+        - label: I have searched existing issues before submitting this report. / 我已先搜索过现有 Issue。
+          required: true
+        - label: I have removed node credentials, passwords and SIM identifiers from this report. / 我已移除节点凭据、密码与 SIM 标识。
+          required: true
