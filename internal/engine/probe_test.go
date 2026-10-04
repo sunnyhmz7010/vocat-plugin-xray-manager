@@ -129,6 +129,7 @@ func TestProbeValidationAndState(t *testing.T) {
 		t.Fatal("accepted closed manager")
 	}
 }
+
 func TestProbeNoDirectFallback(t *testing.T) {
 	var direct atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { direct.Add(1) }))
