@@ -1,0 +1,55 @@
+name: Release build
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          version = json.loads(Path('vocat-plugin.json').read_text())['version']
+          tag = os.environ['RELEASE_TAG']
+          if tag != 'v' + version:
+              raise SystemExit(f'Release tag {tag} does not match plugin version v{version}')
+          PY
+      - name: Test plugin
+        run: |
+          go test ./...
+          go vet ./...
+      - name: Build Linux plugin packages
+        run: python build.py --arch all
+      - name: Upload two plugin packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/xray-manager-*-linux-amd64.zip dist/xray-manager-*-linux-arm64.zip --clobber
