@@ -19,7 +19,7 @@ func TestVLESSPacketEncodingNone(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatal("none must retain the default Xray configuration")
 	}
-	for _, value := range []string{"", "xudp", "packet", "unknown"} {
+	for _, value := range []string{"", "packet", "unknown"} {
 		if _, err := Parse(base + "&packetEncoding=" + value); err == nil {
 			t.Fatalf("accepted unsupported encoding %q", value)
 		}

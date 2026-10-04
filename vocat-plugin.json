@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "xray-manager",
   "name": "Xray管理",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "粘贴 VLESS、VMess、Trojan 或 Shadowsocks 链接，自动启动内置 Xray 并添加到上游代理。",
   "permissions": [
     "process.spawn",

@@ -11,20 +11,22 @@ function csrf() {
   const part = document.cookie.split("; ").find((value) => value.startsWith("vocat_csrf="));
   return part ? decodeURIComponent(part.slice(11)) : "";
 }
-async function request(path, method = "GET", body) {
+async function request(path, method = "GET", body, signal) {
   const headers = { Accept: "application/json" };
   if (method !== "GET") { headers["Content-Type"] = "application/json"; headers["X-CSRF-Token"] = csrf(); }
-  const response = await fetch(path, { method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(path, { method, headers, signal, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) });
   let payload;
   try { payload = await response.json(); } catch { throw new Error(`请求失败（HTTP ${response.status}），请检查插件是否已启用。`); }
   if (!response.ok) throw new Error(response.status === 401 ? "登录已过期，请重新登录 VoCat。" : payload.error?.message || `HTTP ${response.status}`);
   return payload.data;
 }
-function notice(text, error = false) { for (const id of ["notice", "form-notice", "port-notice"]) { $(id).textContent = text; $(id).className = error ? "error" : ""; } }
+function notice(text, error = false) { for (const id of ["notice", "form-notice", "port-notice", "connection-notice"]) { $(id).textContent = text; $(id).className = error ? "error" : ""; } }
 function setBusy(value) {
   busy = value;
   document.querySelectorAll("button").forEach((item) => { item.disabled = value; });
+  document.querySelectorAll("select").forEach((item) => { item.disabled = value; });
   document.querySelectorAll("input, textarea").forEach((item) => { if (item.type === "checkbox") item.disabled = value; else item.readOnly = value; });
+  if (typeof updateMode === "function") { updateMode("import"); updateMode("node"); }
 }
 function toggleAuth(prefix, canKeep = false) {
   const enabled = $(`${prefix}-auth`).checked;
@@ -39,8 +41,9 @@ function connectionSettings(prefix, port, canKeep = false) {
   const bytes = (value) => new TextEncoder().encode(value).length;
   if (auth && (!username || bytes(username) > 255 || bytes(password) > 255 || (!password && !canKeep))) throw new Error("请输入账号和密码，各限 1–255 字节。");
   if (auth && username !== username.trim()) throw new Error("账号首尾不能包含空白字符。");
+  if (auth && username.includes(":")) throw new Error("账号不能包含冒号，HTTP 认证使用冒号分隔账号和密码。");
   if (auth && password === "********") throw new Error("密码不能是八个星号，该值是 VoCat 的密码保留标记。");
-  const result = { port, allow_lan: $(`${prefix}-lan`).checked, auth_enabled: auth, username };
+  const result = { port, inbound_mode: $(`${prefix}-mode`).value, udp_enabled: $(`${prefix}-udp`).checked, allow_lan: $(`${prefix}-lan`).checked, auth_enabled: auth, username };
   if (!auth || password || !canKeep) result.password = password;
   return result;
 }
@@ -82,17 +85,21 @@ function render() {
     stateCell.append(element("span", node.running ? "运行中" : node.enabled ? "启动失败" : "已停止", `badge${node.running ? " running" : ""}`));
     if (node.error) stateCell.append(element("p", node.error, "error"));
     const upstream = upstreamKnown ? upstreams.find((item) => item.id === node.id) : undefined;
-    const sync = !upstreamKnown ? "状态未知" : upstream ? (upstream.addr !== node.addr ? "地址不一致" : upstream.username !== (node.auth_enabled ? node.username : "") ? "认证不一致" : upstream.enabled ? "已添加" : "已停用") : "未推送";
+    const sync = node.inbound_mode === "http" ? (upstream?.enabled ? "请停用不兼容的上游" : "纯 HTTP · 不推送") : !upstreamKnown ? "状态未知" : upstream ? (upstream.addr !== node.addr ? "地址不一致" : upstream.username !== (node.auth_enabled ? node.username : "") ? "认证不一致" : upstream.enabled ? "已添加" : "已停用") : "未推送";
     const addressCell = element("td", "");
     addressCell.append(element("div", node.addr, "address"), element("div", `${node.allow_lan ? '局域网可访问' : '仅本机'} · ${node.auth_enabled ? '账号认证' : '无认证'}`, "access-mode"));
+    addressCell.append(element("div", `${node.inbound_mode === "http" ? "HTTP / CONNECT" : "HTTP / SOCKS5"} · ${node.udp_enabled === false || node.inbound_mode === "http" ? "TCP" : "TCP + UDP"}`, "access-mode"));
     card.append(nameCell, addressCell, stateCell, element("td", sync, "push-state"));
     const actionCell = element("td", "");
     const actions = element("div", "", "actions");
-    actions.append(button(node.running ? "推送到 VoCat 代理管理" : "启动并推送", () => run(async () => {
+    if (node.inbound_mode !== "http") actions.append(button(node.running ? "推送到 VoCat 代理管理" : "启动并推送", () => run(async () => {
       await request(`${BACKEND}/nodes/${node.id}/start`, "POST");
       await syncNode(node.id);
       notice("节点已启动并写入 VoCat。可在代理页面绑定 SIM 和探测连接。");
     })));
+    else if (!node.running) actions.append(button("启动", () => run(async () => { await request(`${BACKEND}/nodes/${node.id}/start`, "POST"); notice("HTTP 代理已启动。"); })));
+    actions.append(button("节点参数", () => openConnection(node)));
+    if (node.running) actions.append(button("检测", () => openProbe(node)));
     if (node.running || node.enabled) actions.append(button("停止", () => run(async () => {
       // 先更新宿主；若宿主拒绝操作，保留正在工作的内核。
       const list = await request("/api/upstream-proxies");
@@ -106,6 +113,9 @@ function render() {
       editingPortID = node.id;
       $("port-node-name").textContent = node.name;
       $("node-port").value = node.addr.split(":").pop();
+      $("node-mode").value = node.inbound_mode || "mixed";
+      $("node-udp").checked = node.udp_enabled !== false;
+      updateMode("node");
       $("node-lan").checked = !!node.allow_lan;
       $("node-auth").checked = !!node.auth_enabled;
       $("node-username").value = node.username || "";
@@ -168,12 +178,12 @@ $("import-form").addEventListener("submit", (event) => {
     const node = await request(`${BACKEND}/nodes`, "POST", { link, ...settings });
     nodes = [...nodes.filter((item) => item.id !== node.id), node];
     if (!node.running) await request(`${BACKEND}/nodes/${node.id}/start`, "POST");
-    try { await syncNode(node.id); } catch (error) { throw new Error(`节点“${node.name}”已保存。${error.message}`); }
+    try { if (node.inbound_mode !== "http") await syncNode(node.id); } catch (error) { throw new Error(`节点“${node.name}”已保存。${error.message}`); }
     $("link").value = "";
     $("import-form").reset();
-    toggleAuth("import");
+    toggleAuth("import"); updateMode("import"); importEditor.load();
     $("import-dialog").close();
-    notice(`“${node.name}”已添加到 VoCat，监听 ${node.addr}。请在代理页面选择 SIM 绑定。`);
+    notice(node.inbound_mode === "http" ? `“${node.name}”已启动为 HTTP 代理，监听 ${node.addr}，未推送到 VoCat。` : `“${node.name}”已添加到 VoCat，监听 ${node.addr}。请在代理页面选择 SIM 绑定。`);
   });
 });
 $("port-form").addEventListener("submit", (event) => {
@@ -184,9 +194,16 @@ $("port-form").addEventListener("submit", (event) => {
   let settings;
   try { settings = connectionSettings("node", port, editingPasswordSet); } catch (error) { notice(error.message, true); return; }
   run(async () => {
-    const updated = await request(`${BACKEND}/nodes/${id}/settings`, "PUT", settings);
+    let disabledUpstream = false;
+    if (settings.inbound_mode === "http") {
+      const owned = ownedUpstream(await request("/api/upstream-proxies"), id);
+      if (owned?.enabled) { await request(`/api/upstream-proxies/${id}`, "PATCH", {enabled:false}); disabledUpstream = true; }
+    }
+    let updated;
+    try { updated = await request(`${BACKEND}/nodes/${id}/settings`, "PUT", settings); } catch(error) { throw new Error(`${disabledUpstream ? "VoCat 上游已停用；" : ""}${error.message}`); }
     $("node-password").value = "";
     $("port-dialog").close();
+    if (updated.inbound_mode === "http") { notice(`HTTP 设置已保存，监听 ${updated.addr}。对应 VoCat 上游已停用，绑定保留。`); return; }
     notice(`连接设置已保存，VoCat 本机地址为 ${updated.addr}。${updated.running ? '请点击“推送到 VoCat 代理管理”更新地址和凭据。' : '节点仍处于停止状态；点击“启动并推送”可启用新端口并更新上游地址。'}`);
   });
 });

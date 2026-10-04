@@ -1,5 +1,5 @@
 // Package node 将单个分享链接解析为 Xray v26.3.27 outbound。
-// 错误消息只包含固定描述，不能回显链接、凭据或未知参数。
+// 错误消息可以指出字段名，但不能回显链接或参数值。
 package node
 
 import (
@@ -89,9 +89,9 @@ func Parse(raw string) (Node, error) {
 	if err != nil {
 		return Node{}, fail("查询参数格式无效")
 	}
-	for _, values := range q {
+	for key, values := range q {
 		if len(values) != 1 {
-			return Node{}, fail("不支持重复查询参数")
+			return Node{}, fieldError("不支持重复查询参数", key)
 		}
 	}
 	name := u.Fragment
@@ -104,17 +104,17 @@ func Parse(raw string) (Node, error) {
 	if scheme == "ss" {
 		return parseSS(u, q, name, host, port)
 	}
-	allowed := " type security sni fp alpn allowInsecure path host serviceName mode headerType "
+	allowed := " type security sni fp alpn allowInsecure path host serviceName mode headerType authority ed extra seed pcs pinnedPeerCertSha256 pinSHA256 vcn verifyPeerCertByName verifyPeerCertInNames "
 	if scheme == "vless" {
-		allowed += " encryption flow pbk sid spx packetEncoding "
+		allowed += " encryption flow pbk sid spx packetEncoding pqv mldsa65Verify "
 	}
 	for key := range q {
 		if !permitted(allowed, key) {
-			return Node{}, fail("包含不支持的查询参数")
+			return Node{}, fieldError("不支持的查询参数", key)
 		}
 	}
 	if _, present := q["allowInsecure"]; present && q.Get("allowInsecure") != "0" && q.Get("allowInsecure") != "false" {
-		return Node{}, fail("不允许关闭 TLS 证书验证")
+		return Node{}, fail("allowInsecure=true 已被固定 Xray 核心移除；请使用 pcs/pinnedPeerCertSha256 和 vcn/verifyPeerCertByName")
 	}
 	credential := u.User.Username()
 	if _, hasPassword := u.User.Password(); hasPassword || credential == "" || !clean(credential) {
@@ -125,14 +125,17 @@ func Parse(raw string) (Node, error) {
 		if !uuid(credential) {
 			return Node{}, fail("UUID 格式无效")
 		}
-		if q.Has("encryption") && q.Get("encryption") != "none" {
-			return Node{}, fail("不支持的 VLESS encryption")
+		encryption := "none"
+		if q.Has("encryption") {
+			encryption = q.Get("encryption")
 		}
-		// 分享客户端的 none 表示不增加额外数据包封装；Xray 无对应配置字段。
-		if q.Has("packetEncoding") && q.Get("packetEncoding") != "none" {
-			return Node{}, fail("目前仅支持 packetEncoding=none")
+		if !validEncryption(encryption) {
+			return Node{}, fail("不支持或无效的 VLESS encryption")
 		}
-		user := map[string]any{"id": credential, "encryption": "none"}
+		if q.Has("packetEncoding") && q.Get("packetEncoding") != "none" && q.Get("packetEncoding") != "xudp" {
+			return Node{}, fail("packetEncoding 仅支持 none/xudp；packet 无 Xray 实现")
+		}
+		user := map[string]any{"id": credential, "encryption": encryption}
 		if flow := q.Get("flow"); flow != "" {
 			if flow != "xtls-rprx-vision" && flow != "xtls-rprx-vision-udp443" {
 				return Node{}, fail("不支持的 VLESS flow")
@@ -150,7 +153,11 @@ func Parse(raw string) (Node, error) {
 	if err != nil {
 		return Node{}, err
 	}
-	return Node{Name: name, Protocol: scheme, Outbound: map[string]any{"protocol": scheme, "settings": settings, "streamSettings": stream}}, nil
+	outbound := map[string]any{"protocol": scheme, "settings": settings, "streamSettings": stream}
+	if q.Get("packetEncoding") == "xudp" {
+		outbound["mux"] = map[string]any{"enabled": true, "concurrency": -1, "xudpConcurrency": 16, "xudpProxyUDP443": "allow"}
+	}
+	return Node{Name: name, Protocol: scheme, Outbound: outbound}, nil
 }
 
 func endpoint(host, portText string) (string, int, error) {
@@ -199,6 +206,14 @@ func streamSettings(q url.Values, protocol string) (map[string]any, error) {
 		}
 	}
 	network := q.Get("type")
+	switch network {
+	case "websocket":
+		network = "ws"
+	case "splithttp":
+		network = "xhttp"
+	case "mkcp":
+		network = "kcp"
+	}
 	if network == "" || network == "tcp" {
 		network = "raw"
 	}
@@ -207,14 +222,14 @@ func streamSettings(q url.Values, protocol string) (map[string]any, error) {
 		security = "none"
 	}
 	switch network {
-	case "raw", "ws", "grpc", "xhttp":
+	case "raw", "ws", "grpc", "xhttp", "httpupgrade", "kcp":
 	default:
 		return nil, fail("不支持的传输方式")
 	}
 	switch security {
 	case "none", "tls":
 	case "reality":
-		if protocol != "vless" || network == "ws" {
+		if protocol != "vless" || (network != "raw" && network != "xhttp" && network != "grpc") {
 			return nil, fail("不支持的 Reality 组合")
 		}
 	default:
@@ -223,57 +238,26 @@ func streamSettings(q url.Values, protocol string) (map[string]any, error) {
 	if q.Get("flow") != "" && (network != "raw" || security == "none") {
 		return nil, fail("Vision flow 需要 RAW 和 TLS 或 Reality")
 	}
-	if q.Get("headerType") != "" && q.Get("headerType") != "none" {
-		return nil, fail("不支持传输头伪装")
+	transport, err := transportSettings(q, network)
+	if err != nil {
+		return nil, err
 	}
 	s := map[string]any{"network": network, "security": security}
-	switch network {
-	case "raw":
-		if q.Has("path") || q.Has("host") || q.Has("serviceName") || q.Has("mode") {
-			return nil, fail("RAW 不支持所提供的传输参数")
+	if transport != nil {
+		s[network+"Settings"] = transport
+	}
+
+	if network == "kcp" {
+		mask, err := kcpMask(q)
+		if err != nil {
+			return nil, err
 		}
-	case "ws", "xhttp":
-		if q.Has("serviceName") {
-			return nil, fail("serviceName 仅支持 gRPC")
+		if mask != nil {
+			s["finalmask"] = mask
 		}
-		t := map[string]any{}
-		if q.Has("path") {
-			t["path"] = q.Get("path")
-		}
-		if q.Has("host") {
-			t["host"] = q.Get("host")
-		}
-		if network == "xhttp" {
-			mode := q.Get("mode")
-			if mode == "" {
-				mode = "auto"
-			}
-			switch mode {
-			case "auto", "packet-up", "stream-up", "stream-one":
-			default:
-				return nil, fail("不支持的 XHTTP mode")
-			}
-			t["mode"] = mode
-		} else if q.Has("mode") {
-			return nil, fail("WS 不支持 mode")
-		}
-		s[network+"Settings"] = t
-	case "grpc":
-		if q.Has("path") || q.Has("host") {
-			return nil, fail("gRPC 请使用 serviceName")
-		}
-		t := map[string]any{"serviceName": q.Get("serviceName")}
-		switch q.Get("mode") {
-		case "", "gun":
-		case "multi":
-			t["multiMode"] = true
-		default:
-			return nil, fail("不支持的 gRPC mode")
-		}
-		s["grpcSettings"] = t
 	}
 	if security == "none" {
-		for _, key := range []string{"sni", "fp", "alpn", "pbk", "sid", "spx"} {
+		for _, key := range []string{"sni", "fp", "alpn", "pbk", "sid", "spx", "pqv", "mldsa65Verify", "pcs", "pinnedPeerCertSha256", "pinSHA256", "vcn", "verifyPeerCertByName", "verifyPeerCertInNames"} {
 			if q.Has(key) {
 				return nil, fail("安全参数需要 TLS 或 Reality")
 			}
@@ -287,20 +271,21 @@ func streamSettings(q url.Values, protocol string) (map[string]any, error) {
 		}
 		t["serverName"] = q.Get("sni")
 	}
-	fp := q.Get("fp")
+	fp := strings.ToLower(q.Get("fp"))
 	if fp != "" {
-		switch fp {
-		case "chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized":
-		default:
+		if !permitted(fingerprints, fp) || (security == "reality" && (fp == "unsafe" || fp == "hellogolang")) {
 			return nil, fail("不支持的 TLS fingerprint")
 		}
 		t["fingerprint"] = fp
 	}
 	if security == "tls" {
-		for _, key := range []string{"pbk", "sid", "spx"} {
+		for _, key := range []string{"pbk", "sid", "spx", "pqv", "mldsa65Verify"} {
 			if q.Has(key) {
 				return nil, fail("Reality 参数需要 Reality")
 			}
+		}
+		if err := tlsVerification(q, t); err != nil {
+			return nil, err
 		}
 		t["allowInsecure"] = false
 		if q.Has("alpn") {
@@ -313,6 +298,22 @@ func streamSettings(q url.Values, protocol string) (map[string]any, error) {
 			t["alpn"] = alpn
 		}
 	} else {
+		for _, k := range []string{"pcs", "pinnedPeerCertSha256", "pinSHA256", "vcn", "verifyPeerCertByName", "verifyPeerCertInNames"} {
+			if q.Has(k) {
+				return nil, fieldError("字段仅适用于 TLS", k)
+			}
+		}
+		pqv, err := aliasValue(q, "pqv", "mldsa65Verify")
+		if err != nil {
+			return nil, err
+		}
+		if pqv != "" {
+			b, e := base64.RawURLEncoding.Strict().DecodeString(pqv)
+			if e != nil || len(b) != 1952 {
+				return nil, fail("pqv/mldsa65Verify 必须是 1952 字节 RawURLBase64 公钥")
+			}
+			t["mldsa65Verify"] = pqv
+		}
 		if q.Has("alpn") {
 			return nil, fail("Reality 不支持 ALPN 参数")
 		}
@@ -342,8 +343,8 @@ func parseSS(u *url.URL, q url.Values, name, host string, port int) (Node, error
 	if q.Has("plugin") {
 		return Node{}, fail("不支持 Shadowsocks SIP002 插件")
 	}
-	if len(q) > 0 {
-		return Node{}, fail("包含不支持的 Shadowsocks 查询参数")
+	for key := range q {
+		return Node{}, fieldError("不支持的 Shadowsocks 查询参数", key)
 	}
 	method, password := u.User.Username(), ""
 	if p, ok := u.User.Password(); ok {
@@ -412,7 +413,7 @@ func parseVMess(payload string) (Node, error) {
 			return Node{}, fail("VMess JSON 字段重复")
 		}
 		if !permitted(allowed, k) {
-			return Node{}, fail("包含不支持的 VMess 字段")
+			return Node{}, fieldError("不支持的 VMess 字段", k)
 		}
 		var v any
 		if d.Decode(&v) != nil {
@@ -451,7 +452,7 @@ func parseVMess(payload string) (Node, error) {
 		return Node{}, fail("仅支持 VMess AEAD（alterId=0）")
 	}
 	if v, ok := fields["allowInsecure"]; ok && v != "false" && v != "0" {
-		return Node{}, fail("不允许关闭 TLS 证书验证")
+		return Node{}, fail("allowInsecure=true 已被固定 Xray 核心移除；请使用 pcs/pinnedPeerCertSha256 和 vcn/verifyPeerCertByName")
 	}
 	host, port, err := endpoint(strings.TrimSuffix(strings.TrimPrefix(fields["add"], "["), "]"), fields["port"])
 	if err != nil {

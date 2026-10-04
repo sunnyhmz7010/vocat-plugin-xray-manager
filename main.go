@@ -130,6 +130,40 @@ func handler(m *engine.Manager) http.Handler {
 		}
 		respond(w, 200, v)
 	})
+	mux.HandleFunc("GET /nodes/{id}/connection", func(w http.ResponseWriter, r *http.Request) {
+		link, err := m.Connection(r.PathValue("id"))
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		respond(w, 200, map[string]string{"link": link})
+	})
+	mux.HandleFunc("PUT /nodes/{id}/connection", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Link string `json:"link"`
+		}
+		if !decodeBody(w, r, &input, 32768) {
+			return
+		}
+		v, err := m.SetConnection(r.PathValue("id"), input.Link)
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		respond(w, 200, v)
+	})
+	mux.HandleFunc("POST /nodes/{id}/probe", func(w http.ResponseWriter, r *http.Request) {
+		var input engine.ProbeOptions
+		if !decodeBody(w, r, &input, 4096) {
+			return
+		}
+		result, err := m.Probe(r.Context(), r.PathValue("id"), input)
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		respond(w, 200, result)
+	})
 	mux.HandleFunc("POST /nodes/{id}/start", func(w http.ResponseWriter, r *http.Request) {
 		v, err := m.SetEnabled(r.PathValue("id"), true)
 		if err != nil {
@@ -196,6 +230,20 @@ func validateHostSettings(s engine.Settings) error {
 		return errors.New("密码不能是八个星号，该值是 VoCat 的密码保留标记")
 	}
 	return nil
+}
+
+func decodeBody(w http.ResponseWriter, r *http.Request, value any, limit int64) bool {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		fail(w, 400, "请求格式无效")
+		return false
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		fail(w, 400, "请求必须是单一 JSON 对象")
+		return false
+	}
+	return true
 }
 
 func respond(w http.ResponseWriter, code int, data any) {

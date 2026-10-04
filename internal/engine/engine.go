@@ -1,7 +1,8 @@
-// Package engine 托管每个节点的 Xray 进程及固定 SOCKS 端口。
+// Package engine 托管每个节点的 Xray 进程及固定本地代理端口。
 package engine
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +24,8 @@ import (
 )
 
 type Record struct {
+	InboundMode       string   `json:"inbound_mode"`
+	UDPDisabled       bool     `json:"udp_disabled,omitempty"`
 	AllowLAN          bool     `json:"allow_lan"`
 	AuthEnabled       bool     `json:"auth_enabled"`
 	PreviousUsernames []string `json:"previous_usernames,omitempty"`
@@ -36,6 +40,8 @@ type Record struct {
 	Enabled           bool     `json:"enabled"`
 }
 type View struct {
+	InboundMode       string   `json:"inbound_mode"`
+	UDPEnabled        bool     `json:"udp_enabled"`
 	AllowLAN          bool     `json:"allow_lan"`
 	AuthEnabled       bool     `json:"auth_enabled"`
 	Username          string   `json:"username"`
@@ -90,6 +96,9 @@ func Open(dir, core string) (*Manager, error) {
 		seen := map[string]bool{}
 		ports := map[int]bool{}
 		for _, r := range m.records {
+			if !validInboundMode(normalizedInboundMode(r.InboundMode)) {
+				return nil, errors.New("节点入站模式无效")
+			}
 			if !validID(r.ID) || seen[r.ID] || ports[r.Port] || r.Port < 1 || r.Port > 65535 || len(r.Username) > 255 || len(r.Password) > 255 {
 				return nil, errors.New("节点存储字段无效")
 			}
@@ -155,7 +164,7 @@ func (m *Manager) view(r Record) View {
 	if r.AuthEnabled {
 		username = r.Username
 	}
-	return View{AllowLAN: r.AllowLAN, AuthEnabled: r.AuthEnabled, Username: username, PasswordSet: r.AuthEnabled && r.Password != "", PreviousUsernames: append([]string{}, r.PreviousUsernames...), ID: r.ID, Name: r.Name, Protocol: r.Protocol, Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(r.Port)), Enabled: r.Enabled, Running: running, Error: problem, PreviousAddrs: previous}
+	return View{InboundMode: normalizedInboundMode(r.InboundMode), UDPEnabled: recordUDPEnabled(r), AllowLAN: r.AllowLAN, AuthEnabled: r.AuthEnabled, Username: username, PasswordSet: r.AuthEnabled && r.Password != "", PreviousUsernames: append([]string{}, r.PreviousUsernames...), ID: r.ID, Name: r.Name, Protocol: r.Protocol, Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(r.Port)), Enabled: r.Enabled, Running: running, Error: problem, PreviousAddrs: previous}
 }
 func (m *Manager) List() []View {
 	m.mu.Lock()
@@ -186,7 +195,10 @@ func (m *Manager) AddWithSettings(link string, settings Settings) (View, error) 
 	hash := sha256.Sum256([]byte(link))
 	id := nodeIDPrefix + hex.EncodeToString(hash[:8])
 	for _, r := range m.records {
-		if r.ID == id {
+		if r.ID == id && r.Link != link {
+			return View{}, errors.New("原链接对应的节点已修改参数，请编辑该节点或为新链接添加不同备注")
+		}
+		if r.Link == link {
 			if port != 0 && port != r.Port {
 				return View{}, errors.New("该链接已存在且端口不同，请在连接设置中修改端口")
 			}
@@ -212,11 +224,11 @@ func (m *Manager) AddWithSettings(link string, settings Settings) (View, error) 
 		for _, r := range m.records {
 			reserved = append(reserved, r.Port)
 		}
-		port, err = availablePortFor(settings.AllowLAN, reserved...)
+		port, err = availablePortForUDP(settings.AllowLAN, recordUDPEnabled(validated), reserved...)
 		if err != nil {
 			return View{}, errors.New("无法分配本地 TCP/UDP 端口")
 		}
-	} else if err := m.checkBinding(port, "", settings.AllowLAN); err != nil {
+	} else if err := m.checkRecordBinding(validated); err != nil {
 		return View{}, err
 	}
 	r := validated
@@ -237,24 +249,34 @@ func (m *Manager) checkPort(port int, exceptID string) error {
 	return m.checkBinding(port, exceptID, false)
 }
 func (m *Manager) checkBinding(port int, exceptID string, allowLAN bool) error {
+	return m.checkRecordBinding(Record{Port: port, ID: exceptID, AllowLAN: allowLAN})
+}
+func (m *Manager) checkRecordBinding(record Record) error {
+	port, exceptID := record.Port, record.ID
 	for _, r := range m.records {
 		if r.ID != exceptID && r.Port == port {
 			return fmt.Errorf("本地端口 %d 已被其他已保存节点预留", port)
 		}
 	}
-	return checkAvailableBinding(port, allowLAN)
+	return checkAvailableBindingUDP(port, record.AllowLAN, recordUDPEnabled(record))
 }
 
 func checkAvailablePort(port int) error {
 	return checkAvailableBinding(port, false)
 }
 func checkAvailableBinding(port int, allowLAN bool) error {
+	return checkAvailableBindingUDP(port, allowLAN, true)
+}
+func checkAvailableBindingUDP(port int, allowLAN, udp bool) error {
 	addr := net.JoinHostPort(listenHost(allowLAN), fmt.Sprint(port))
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("本地 TCP 端口 %d 不可用", port)
 	}
 	defer l.Close()
+	if !udp {
+		return nil
+	}
 	u, err := net.ListenPacket("udp", addr)
 	if err != nil {
 		return fmt.Errorf("本地 UDP 端口 %d 不可用", port)
@@ -318,6 +340,9 @@ func (m *Manager) Export(id string) (Export, error) {
 	defer m.mu.Unlock()
 	for _, r := range m.records {
 		if r.ID == id {
+			if normalizedInboundMode(r.InboundMode) == "http" {
+				return Export{}, errors.New("VoCat 上游只支持 SOCKS，请切换 HTTP/SOCKS 混合模式后推送")
+			}
 			if !alive(m.processes[id]) {
 				return Export{}, errors.New("请先启动节点")
 			}
@@ -361,13 +386,16 @@ func (m *Manager) save(records []Record) error {
 }
 func availablePort(reserved ...int) (int, error) { return availablePortFor(false, reserved...) }
 func availablePortFor(allowLAN bool, reserved ...int) (int, error) {
+	return availablePortForUDP(allowLAN, true, reserved...)
+}
+func availablePortForUDP(allowLAN, udp bool, reserved ...int) (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
 	start := l.Addr().(*net.TCPAddr).Port
 	l.Close()
-	return availablePortFromBinding(start, reserved, allowLAN)
+	return availablePortFromBindingUDP(start, reserved, allowLAN, udp)
 }
 
 // 从系统建议的临时端口开始扫描，避免反复分配到已停用节点的预留端口。
@@ -375,13 +403,16 @@ func availablePortFrom(start int, reserved []int) (int, error) {
 	return availablePortFromBinding(start, reserved, false)
 }
 func availablePortFromBinding(start int, reserved []int, allowLAN bool) (int, error) {
+	return availablePortFromBindingUDP(start, reserved, allowLAN, true)
+}
+func availablePortFromBindingUDP(start int, reserved []int, allowLAN, udp bool) (int, error) {
 	excluded := make(map[int]bool, len(reserved))
 	for _, port := range reserved {
 		excluded[port] = true
 	}
 	for offset := 0; offset < 65535; offset++ {
 		port := (start-1+offset)%65535 + 1
-		if !excluded[port] && checkAvailableBinding(port, allowLAN) == nil {
+		if !excluded[port] && checkAvailableBindingUDP(port, allowLAN, udp) == nil {
 			return port, nil
 		}
 	}
@@ -394,7 +425,12 @@ func Config(r Record) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	settings := map[string]any{"auth": "noauth", "udp": true}
+	mode := normalizedInboundMode(r.InboundMode)
+	if !validInboundMode(mode) {
+		return nil, errors.New("节点入站模式无效")
+	}
+	protocol := "socks"
+	settings := map[string]any{"auth": "noauth", "udp": recordUDPEnabled(r)}
 	// LAN 省略 ip，Xray 使用 TCP conn.LocalAddr() 返回可达 UDP 地址。
 	if !r.AllowLAN {
 		settings["ip"] = "127.0.0.1"
@@ -406,9 +442,17 @@ func Config(r Record) ([]byte, error) {
 		settings["auth"] = "password"
 		settings["accounts"] = []any{map[string]string{"user": r.Username, "pass": r.Password}}
 	}
+	if mode == "http" {
+		protocol = "http"
+		accounts := settings["accounts"]
+		settings = map[string]any{"allowTransparent": false}
+		if accounts != nil {
+			settings["accounts"] = accounts
+		}
+	}
 	return json.Marshal(map[string]any{
 		"log":       map[string]any{"loglevel": "none"},
-		"inbounds":  []any{map[string]any{"listen": listenHost(r.AllowLAN), "port": r.Port, "protocol": "socks", "settings": settings}},
+		"inbounds":  []any{map[string]any{"listen": listenHost(r.AllowLAN), "port": r.Port, "protocol": protocol, "settings": settings}},
 		"outbounds": []any{n.Outbound},
 	})
 }
@@ -427,7 +471,7 @@ func (m *Manager) start(r Record) error {
 
 // launch 不改动管理器状态，调用方负责提交或清理候选进程。
 func (m *Manager) launch(r Record) (*process, error) {
-	if err := m.checkBinding(r.Port, r.ID, r.AllowLAN); err != nil {
+	if err := m.checkRecordBinding(r); err != nil {
 		return nil, err
 	}
 	data, err := Config(r)
@@ -470,7 +514,11 @@ func (m *Manager) launch(r Record) (*process, error) {
 		if !alive(p) {
 			return nil, errors.New("Xray 启动后退出，可能端口被占用")
 		}
-		if socksReady(r) == nil && alive(p) {
+		ready := socksReady
+		if normalizedInboundMode(r.InboundMode) == "http" {
+			ready = httpReady
+		}
+		if ready(r) == nil && alive(p) {
 			return p, nil
 		}
 		select {
@@ -480,7 +528,33 @@ func (m *Manager) launch(r Record) (*process, error) {
 		}
 	}
 	stopProcess(p)
-	return nil, errors.New("Xray 本地 SOCKS 服务未就绪")
+	return nil, errors.New("Xray 本地代理服务未就绪")
+}
+
+// httpReady 使用核心本地拒绝响应，不建立任何出站连接。
+func httpReady(r Record) error {
+	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(r.Port)), 150*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(200 * time.Millisecond))
+	if _, err = io.WriteString(c, "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"); err != nil {
+		return err
+	}
+	response, err := http.ReadResponse(bufio.NewReader(c), nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	expected := http.StatusBadRequest
+	if r.AuthEnabled {
+		expected = http.StatusProxyAuthRequired
+	}
+	if response.StatusCode != expected {
+		return errors.New("HTTP 代理就绪响应无效")
+	}
+	return nil
 }
 func socksReady(r Record) error {
 	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(r.Port)), 150*time.Millisecond)
