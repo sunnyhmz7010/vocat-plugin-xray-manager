@@ -37,6 +37,10 @@ func TestHTTPBoundary(t *testing.T) {
 		name, method, path, body, plugin, origin, mime string
 		want                                           int
 	}{
+		{"rename-bypass", "PUT", "/nodes/unknown/name", `{"name":"new"}`, "", "", "application/json", 403},
+		{"rename-extra", "PUT", "/nodes/unknown/name", `{"name":"new","link":"secret"}`, "xray-manager", "", "application/json", 400},
+		{"rename-type", "PUT", "/nodes/unknown/name", `{"name":123}`, "xray-manager", "", "application/json", 400},
+		{"rename-trailing", "PUT", "/nodes/unknown/name", `{"name":"new"}{}`, "xray-manager", "", "application/json", 400},
 		{"port-type", "POST", "/nodes", `{"link":"x","port":"1080"}`, "xray-manager", "", "application/json", 400},
 		{"settings-type", "PUT", "/nodes/unknown/settings", `{"port":1080,"allow_lan":"true"}`, "xray-manager", "", "application/json", 400},
 		{"settings-mask", "PUT", "/nodes/unknown/settings", `{"port":1080,"auth_enabled":true,"username":"test","password":"********"}`, "xray-manager", "", "application/json", 400},

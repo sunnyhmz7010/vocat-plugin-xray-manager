@@ -11,11 +11,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    let nodeLink = '', failConnection = false, probeRequest;
+    let nodeLink = '', failConnection = false, failRename = false, probeRequest;
+    const requests = [], bindings = [{iccid:'test-sim',upstream_proxy_id:'xray-manager-0123456789abcdef'}];
     let nodes = [], upstreams = [], failSave = false, failDelete = false, writes = 0, nodePassword = "";
     const item = { id: 'xray-manager-0123456789abcdef', name: '<img src=x onerror=alert(1)>', protocol: 'vless', addr: '127.0.0.1:12345', running: true, enabled: true };
     await page.route('http://vocat.test/**', async route => {
       const req = route.request(), url = new URL(req.url()), method = req.method();
+      requests.push({path:url.pathname,method});
       const send = (data, status = 200) => route.fulfill({ status, json: status === 200 ? { data } : { error: { message: data } } });
       if (url.pathname === '/host') return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html class="dark"><body><iframe title="Xray管理" src="/plugin-assets/xray-manager/web/panel.html" sandbox="allow-scripts allow-forms allow-same-origin" width="100%" height="800"></iframe></body></html>' });
       if (url.pathname.startsWith('/plugin-assets/')) {
@@ -31,7 +33,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         if (method === 'GET') return send(upstreams.map(value => ({ ...value, password: value.password ? '********' : '' })));
         writes++;
         if (failSave && ['POST', 'PUT'].includes(method)) return send('模拟宿主保存失败', 500);
-        if (method === 'POST' || method === 'PUT') upstreams = [req.postDataJSON()];
+        if (method === 'POST' || method === 'PUT') {
+          const value=req.postDataJSON(), previous=upstreams.find(item=>item.id===value.id);
+          if (method==='PUT' && previous && value.password==='********') value.password=previous.password;
+          upstreams = [value];
+        }
         if (method === 'PATCH') upstreams[0].enabled = false;
         if (method === 'DELETE') upstreams = [];
         return send({});
@@ -65,13 +71,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         nodes[0].password_set = !!nodePassword;
         return send(nodes[0]);
       }
+      if (url.pathname.endsWith('/name') && method==='PUT') {
+        if (failRename) return send('模拟名称保存失败',400);
+        nodes[0].name=req.postDataJSON().name.trim(); return send(nodes[0]);
+      }
       if (url.pathname.endsWith('/connection')) {
         if (method === 'GET') return send({link:nodeLink});
         if (failConnection) return send('模拟参数保存失败', 400);
         nodeLink = req.postDataJSON().link; return send(nodes[0]);
       }
       if (url.pathname.endsWith('/probe')) { probeRequest = req.postDataJSON(); return send({ok:true,status_code:204,latency_ms:87,error:''}); }
-      if (url.pathname.endsWith('/export')) return send({ id: item.id, name: '测试节点', addr: nodes[0].addr, username: nodes[0].username || '', password: nodePassword, enabled: true });
+      if (url.pathname.endsWith('/export')) return send({ id: item.id, name: nodes[0].name, addr: nodes[0].addr, username: nodes[0].username || '', password: nodePassword, enabled: true });
       if (url.pathname.endsWith('/start')) { nodes[0].running = nodes[0].enabled = true; return send(nodes[0]); }
       if (url.pathname.endsWith('/stop')) { nodes[0].running = nodes[0].enabled = false; return send(nodes[0]); }
       if (method === 'DELETE') {
@@ -121,6 +131,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await click('停止');
     assert.equal(nodes[0].running, false);
     assert.equal(upstreams[0].enabled, false);
+    const writesBeforeLocalStart = writes;
+    await click('仅启动');
+    assert.equal(nodes[0].running, true);
+    assert.equal(upstreams[0].enabled, false);
+    assert.equal(writes, writesBeforeLocalStart);
+    assert.equal(await page.getByRole('button', {name:'仅启动',exact:true}).count(), 0);
+    await click('停止');
     await click('启动并推送');
     assert.equal(nodes[0].running, true);
     assert.equal(upstreams[0].enabled, true);
@@ -163,6 +180,37 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await click('推送到 VoCat 代理管理');
     assert.equal(upstreams[0].username, 'alice');
     assert.equal(upstreams[0].password, 'test-local-password');
+    // 重命名保持身份、凭据和绑定，失败保留输入并允许同步重试。
+    const beforeRename = {...nodes[0]}, linkBeforeRename=nodeLink, originalUpstream={...upstreams[0]};
+    const requestStart=requests.length;
+    await click('重命名');
+    assert.equal(await page.locator('#rename-name').inputValue(),nodes[0].name);
+    await page.locator('#rename-name').fill('🇩🇪 独立名称');
+    failRename=true; await click('保存名称');
+    assert.equal(nodes[0].name,beforeRename.name);
+    assert.equal(await page.locator('#rename-name').inputValue(),'🇩🇪 独立名称');
+    assert.equal(await page.locator('#rename-dialog').evaluate(el=>el.open),true);
+    failRename=false; failSave=true; await click('保存名称');
+    assert.equal(nodes[0].name,'🇩🇪 独立名称');
+    assert.equal(upstreams[0].name,originalUpstream.name);
+    assert.match(await page.locator('#rename-notice').innerText(),/本地已重命名.*VoCat/);
+    failSave=false; await click('保存名称');
+    assert.equal(await page.locator('#rename-dialog').evaluate(el=>el.open),false);
+    assert.equal(upstreams[0].name,'🇩🇪 独立名称');
+    assert.deepEqual({...nodes[0],name:beforeRename.name},beforeRename);
+    assert.deepEqual({...upstreams[0],name:originalUpstream.name},originalUpstream);
+    assert.equal(nodeLink,linkBeforeRename);
+    assert.equal(bindings[0].upstream_proxy_id,nodes[0].id);
+    assert.equal(requests.slice(requestStart).some(r=>/\/(start|stop|settings|connection)$/.test(r.path) || r.path.includes('bindings') || r.method==='DELETE'),false);
+    await click('停止');
+    await click('重命名'); await page.locator('#rename-name').fill('停用节点'); await click('保存名称');
+    assert.equal(nodes[0].running,false); assert.equal(upstreams[0].enabled,false);
+    await click('仅启动');
+    const savedUpstream={...upstreams[0]}, writesBeforeUnpushed=writes;
+    upstreams=[];
+    await click('重命名'); await page.locator('#rename-name').fill('未推送名称'); await click('保存名称');
+    assert.equal(upstreams.length,0); assert.equal(writes,writesBeforeUnpushed);
+    upstreams=[savedUpstream]; await click('刷新状态');
     await click('连接设置');
     assert.equal(await page.locator('#node-password').inputValue(), '');
     assert.equal(await page.locator('#node-username').inputValue(), 'alice');
@@ -332,6 +380,6 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await embedded.locator('html:not(.dark)').waitFor();
     await embedded.getByRole('button', { name: '关闭', exact: true }).click();
     assert.equal(errors.length, 0, errors.join('\n'));
-    console.log('PASS browser: KCP options, XHTTP download roundtrip and invalid JSON retention, import retention, retry, CSRF, escaping, ownership, stop/start, partial deletion, mobile layout, LAN/auth settings, credential retention and update, simplified layout');
+    console.log('PASS browser: independent rename, state/credentials/binding identity preservation and retry, KCP options, XHTTP download roundtrip and invalid JSON retention, import retention, retry, CSRF, escaping, ownership, stop/start, partial deletion, mobile layout, LAN/auth settings, credential retention and update, simplified layout');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -350,7 +350,7 @@ func (m *Manager) Export(id string) (Export, error) {
 			if r.AuthEnabled {
 				username, password = r.Username, r.Password
 			}
-			return Export{r.ID, "节点 · " + r.Name, net.JoinHostPort("127.0.0.1", fmt.Sprint(r.Port)), username, password, true}, nil
+			return Export{r.ID, r.Name, net.JoinHostPort("127.0.0.1", fmt.Sprint(r.Port)), username, password, true}, nil
 		}
 	}
 	return Export{}, errors.New("节点不存在")
