@@ -15,7 +15,7 @@
 <label class="check-field"><input id="import-lan" type="checkbox">允许局域网访问</label><p class="hint">开启后监听所有 IPv4 网卡，其他设备通过本设备的 IP 和端口连接。</p>
 <label class="check-field"><input id="import-auth" type="checkbox">账号密码认证</label>
 <div id="import-auth-fields" hidden><label for="import-username">账号</label><input id="import-username" type="text" maxlength="255" autocomplete="off" spellcheck="false"><label class="field-gap" for="import-password">密码</label><input id="import-password" type="password" maxlength="255" autocomplete="new-password"><p class="hint">账号和密码各限 255 字节，推送时会写入 VoCat 代理管理。</p></div>
-<p id="form-notice" role="status" aria-live="polite"></p></div><div class="dialog-footer"><button id="cancel-import" class="secondary" type="button">取消</button><button type="submit" id="import-button">导入并推送到 VoCat</button></div></form></dialog>
+<p class="hint">导入会保存并启动节点，不推送到 VoCat 代理管理。</p><p id="form-notice" role="status" aria-live="polite"></p></div><div class="dialog-footer"><button id="cancel-import" class="secondary" type="button">取消</button><button type="submit" id="import-local-button" class="secondary">导入</button><button type="submit" id="import-button">导入并推送到 VoCat</button></div></form></dialog>
 <dialog id="port-dialog" aria-labelledby="port-title">
 <div class="dialog-heading"><h2 id="port-title">连接设置</h2><button id="close-port" class="icon-button secondary" type="button" aria-label="关闭连接设置">×</button></div>
 <form id="port-form"><div class="dialog-body"><p id="port-node-name" class="hint"></p>

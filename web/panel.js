@@ -60,7 +60,7 @@ function icon(name) {
 }
 function button(text, action, className = "secondary") {
   const item = element("button", text, className);
-  const symbol = text === "停止" ? "PauseRegular" : text === "启动并推送" || text === "仅启动" ? "PlayRegular" : text === "连接设置" || text === "节点参数" || text === "重命名" ? "EditRegular" : text === "检测" ? "Pulse" : text.includes("删除") ? "DeleteRegular" : text === "推送到 VoCat 代理管理" ? "ArrowSyncRegular" : null;
+  const symbol = text === "停止" ? "PauseRegular" : text === "启动并推送" || text === "启动" ? "PlayRegular" : text === "连接设置" || text === "节点参数" || text === "重命名" ? "EditRegular" : text === "检测" ? "Pulse" : text.includes("删除") ? "DeleteRegular" : text === "推送到 VoCat 代理管理" ? "ArrowSyncRegular" : null;
   if (symbol) item.prepend(icon(symbol));
   if (text === "停止") item.className = "warning";
   if (text === "启动并推送") item.className = "success";
@@ -94,7 +94,7 @@ function render() {
     card.append(nameCell, addressCell, stateCell, element("td", sync, "push-state"));
     const actionCell = element("td", "");
     const actions = element("div", "", "actions");
-    if (!node.running) actions.append(button("仅启动", () => run(async () => {
+    if (!node.running) actions.append(button("启动", () => run(async () => {
       await request(`${BACKEND}/nodes/${node.id}/start`, "POST");
       notice("本地代理已启动，VoCat 上游配置未更新。");
     })));
@@ -176,6 +176,7 @@ $("import-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const link = $("link").value.trim();
   if (!link) return;
+  const pushToVocat = event.submitter?.id !== "import-local-button";
   const port = $("import-port").value === "" ? 0 : Number($("import-port").value);
   if (!Number.isInteger(port) || port < 0 || port > 65535) { notice("请输入 1 到 65535 的整数端口，或留空自动分配。", true); return; }
   let settings;
@@ -184,12 +185,12 @@ $("import-form").addEventListener("submit", (event) => {
     const node = await request(`${BACKEND}/nodes`, "POST", { link, ...settings });
     nodes = [...nodes.filter((item) => item.id !== node.id), node];
     if (!node.running) await request(`${BACKEND}/nodes/${node.id}/start`, "POST");
-    try { if (node.inbound_mode !== "http") await syncNode(node.id); } catch (error) { throw new Error(`节点“${node.name}”已保存。${error.message}`); }
+    try { if (pushToVocat && node.inbound_mode !== "http") await syncNode(node.id); } catch (error) { throw new Error(`节点“${node.name}”已保存。${error.message}`); }
     $("link").value = "";
     $("import-form").reset();
     toggleAuth("import"); updateMode("import"); importEditor.load();
     $("import-dialog").close();
-    notice(node.inbound_mode === "http" ? `“${node.name}”已启动为 HTTP 代理，监听 ${node.addr}，未推送到 VoCat。` : `“${node.name}”已添加到 VoCat，监听 ${node.addr}。请在代理页面选择 SIM 绑定。`);
+    notice(!pushToVocat ? `“${node.name}”已导入并启动，监听 ${node.addr}，未推送到 VoCat。` : node.inbound_mode === "http" ? `“${node.name}”已启动为 HTTP 代理，监听 ${node.addr}，未推送到 VoCat。` : `“${node.name}”已添加到 VoCat，监听 ${node.addr}。请在代理页面选择 SIM 绑定。`);
   });
 });
 let renamingID = "";
