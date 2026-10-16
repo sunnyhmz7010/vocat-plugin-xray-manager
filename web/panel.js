@@ -66,7 +66,7 @@ function button(text, action, className = "secondary") {
   if (text === "启动并推送") item.className = "success";
   item.type = "button"; item.disabled = busy; item.addEventListener("click", action); return item;
 }
-for (const [id, symbol, text] of [["add-node", "AddRegular", "新增节点"], ["refresh", "ArrowSyncRegular", "刷新状态"], ["close-dialog", "DismissRegular", ""], ["close-port", "DismissRegular", ""]]) {
+for (const [id, symbol, text] of [["add-node", "AddRegular", "新增节点"], ["refresh", "ArrowSyncRegular", "刷新状态"], ["close-dialog", "DismissRegular", ""], ["close-port", "DismissRegular", ""], ["close-delete", "DismissRegular", ""]]) {
   $(id).replaceChildren(icon(symbol)); if (text) $(id).append(document.createTextNode(text));
 }
 async function refresh() {
@@ -133,22 +133,30 @@ function render() {
       notice(""); $("port-dialog").showModal(); $("node-port").focus();
     }));
     actions.append(button("删除", () => {
-      if (card.querySelector(".confirm")) return;
-      const confirm = element("div", "", "confirm");
-      confirm.append(element("p", "删除将同时移除 VoCat 中的上游代理及其绑定。此操作无法撤销。"));
-      confirm.append(button("确认删除", () => run(async () => {
-        const list = await request("/api/upstream-proxies");
-        const owned = ownedUpstream(list, node.id);
-        if (owned) await request(`/api/upstream-proxies/${node.id}`, "DELETE");
-        try { await request(`${BACKEND}/nodes/${node.id}`, "DELETE"); }
-        catch (error) { throw new Error(`VoCat 上游已不存在，原有 SIM 绑定已移除；本地节点清理失败：${error.message} 请重试删除，或重新推送并手动绑定 SIM。`); }
-        notice("节点及 VoCat 上游条目已删除。");
-      }), "danger"), button("取消", () => confirm.remove()));
-      actionCell.append(confirm);
+      deletingID = node.id;
+      $("delete-node-name").textContent = node.name;
+      $("delete-dialog").showModal();
+      $("cancel-delete").focus();
     }, "danger"));
     actionCell.prepend(actions); card.append(actionCell); $("nodes").append(card);
   }
 }
+let deletingID = "";
+$("confirm-delete").addEventListener("click", () => {
+  if (busy || !deletingID || !$("delete-dialog").open) return;
+  const id = deletingID;
+  $("delete-dialog").close();
+  run(async () => {
+    const list = await request("/api/upstream-proxies");
+    const owned = ownedUpstream(list, id);
+    if (owned) await request(`/api/upstream-proxies/${id}`, "DELETE");
+    try { await request(`${BACKEND}/nodes/${id}`, "DELETE"); }
+    catch (error) { throw new Error(`VoCat 上游已不存在，原有 SIM 绑定已移除；本地节点清理失败：${error.message} 请重试删除，或重新推送并手动绑定 SIM。`); }
+    notice("节点及 VoCat 上游条目已删除。");
+  });
+});
+for (const id of ["close-delete", "cancel-delete"]) $(id).addEventListener("click", () => $("delete-dialog").close());
+$("delete-dialog").addEventListener("close", () => { deletingID = ""; });
 function ownedUpstream(list, id) {
   const existing = list.find((item) => item.id === id);
   const local = nodes.find((item) => item.id === id);
