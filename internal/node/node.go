@@ -49,6 +49,8 @@ func Parse(raw string) (Node, error) {
 		return Node{}, fail("节点链接缺少协议")
 	}
 	switch scheme {
+	case "hy2", "hysteria2":
+		return parseHysteria2(raw)
 	case "vmess":
 		return parseVMess(strings.TrimPrefix(raw, "vmess://"))
 	case "vless", "trojan", "ss":

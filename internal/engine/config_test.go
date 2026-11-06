@@ -18,6 +18,8 @@ func TestXrayAcceptsSupportedConfigs(t *testing.T) {
 	}
 	key := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
 	cases := map[string]string{
+		"hy2":               "hy2://test@example.com",
+		"hy2-salamander":    "hysteria2://user:pass@example.com:8443?sni=example.com&obfs=salamander&obfs-password=mask-password&pinSHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"vless-packet-none": "vless://" + testID + "@example.com:443?flow=xtls-rprx-vision&fp=chrome&packetEncoding=none&pbk=" + key + "&security=reality&sni=example.com&type=tcp",
 		"vless-vision-tls":  "vless://" + testID + "@example.com:443?type=tcp&security=tls&flow=xtls-rprx-vision&sni=example.com&fp=chrome",
 		"vless-reality":     "vless://" + testID + "@example.com:443?security=reality&pbk=" + key + "&sid=aabb&sni=example.com&flow=xtls-rprx-vision",

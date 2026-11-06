@@ -8,7 +8,7 @@
 <dialog id="import-dialog" aria-labelledby="import-title">
 <div class="dialog-heading"><h2 id="import-title">新增节点</h2><button id="close-dialog" class="icon-button secondary" type="button" aria-label="关闭">×</button></div>
 <form id="import-form"><div class="dialog-body">
-<label for="link">节点分享链接</label><textarea id="link" rows="4" required maxlength="16384" spellcheck="false" autocomplete="off" placeholder="vless://…"></textarea><p class="hint">支持 VLESS、VMess、Trojan、Shadowsocks。</p>
+<label for="link">节点分享链接</label><textarea id="link" rows="4" required maxlength="16384" spellcheck="false" autocomplete="off" placeholder="vless://… 或 hy2://…"></textarea><p class="hint">支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria 2（hy2:// 或 hysteria2://）。Hy2 支持单端口（默认 443）、SNI、pinSHA256 和 Salamander 混淆；兼容 insecure=1 + pinSHA256（仍校验证书指纹）；不支持无指纹跳过验证、端口跳跃、ECH 或 Gecko。参数通过分享链接编辑。</p>
 <div id="import-parameters"></div><label class="field-gap" for="import-port">本地端口</label><input id="import-port" type="number" min="1" max="65535" step="1" inputmode="numeric" placeholder="留空自动分配">
 <label class="field-gap" for="import-mode">本地代理模式</label><select id="import-mode"><option value="mixed">HTTP / SOCKS5 混合（支持 VoCat）</option><option value="http">HTTP / CONNECT（供其他客户端使用）</option></select><p class="hint">混合模式同一端口接受 HTTP 和 SOCKS5；当前内核没有仅接受 SOCKS 的开关。纯 HTTP 不能推送给 VoCat。</p>
 <label class="check-field"><input id="import-udp" type="checkbox" checked>允许 SOCKS UDP 转发</label><p id="import-mode-hint" class="hint"></p>
