@@ -86,7 +86,7 @@ def build(arch, offline):
         for name in upstream.namelist():
             if Path(name).name.lower().startswith(('license', 'notice')):
                 add_bytes(package, 'licenses/Xray-' + Path(name).name, upstream.read(name))
-        for name in ['README.md', 'LICENSE', 'SECURITY.md', 'THIRD_PARTY.md']:
+        for name in ['LICENSE', 'SECURITY.md']:
             add_bytes(package, name, (ROOT / name).read_bytes())
         for path in sorted((ROOT / 'web').glob('*')):
             if path.is_file():
